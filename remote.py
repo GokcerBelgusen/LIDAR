@@ -20,7 +20,10 @@ key_states = {
     "up": False,
     "down": False,
     "left": False,
-    "right": False
+    "right": False,
+    "lidar" : False,
+    "ultrasound" : False,
+    "stop" : False
 }
 
 
@@ -32,8 +35,28 @@ print("Press arrow keys for FORWARD, LEFT, RIGHT, BACKWARD, or ESC to exit.")
 
 try:
     while True:
-      
 
+        # Check if 'l' key is pressed
+        if keyboard.is_pressed("l") and not key_states["lidar"]:
+            send_command("LIDAR")
+            key_states["lidar"] = True
+        elif not keyboard.is_pressed("l") and key_states["lidar"]:
+            key_states["lidar"] = False
+
+        # Check if 'u' key is pressed
+        if keyboard.is_pressed("u") and not key_states["ultrasound"]:
+            send_command("ULTRASOUND")
+            key_states["ultrasound"] = True
+        elif not keyboard.is_pressed("u") and key_states["ultrasound"]:
+            key_states["ultrasound"] = False
+
+         # Check if 's' key is pressed
+        if keyboard.is_pressed("s") and not key_states["stop"]:
+            send_command("STOP")
+            key_states["stop"] = True
+        elif not keyboard.is_pressed("l") and key_states["stop"]:
+            key_states["stop"] = False
+            
         # Check if 'up' key is pressed
         if keyboard.is_pressed("up") and not key_states["up"]:
             send_command("FORWARD")

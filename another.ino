@@ -59,6 +59,11 @@ boolean debug = 0;
 
 AsyncMqttClient mqttClient; // Declare the WiFiClient object globally
 
+
+boolean lidar_movement_activated = 0;
+boolean ultrasound_movement_activated = 0;
+
+
 // Function to read distance in centimeters
 float getUltrasonicDistance() {
   // Ensure the trigger pin is low initially
@@ -86,63 +91,67 @@ const int threshold = 20;
 
 // Function to measure distances in all four directions
 void measureAllDirections(long &distanceFront, long &distanceLeft, long &distanceBack, long &distanceRight) {
-    distanceFront = getUltrasonicDistance();
-    turnLeft(2);
-    distanceLeft = getUltrasonicDistance();
-    turnLeft(2);
-    distanceBack = getUltrasonicDistance();
-    turnLeft(2);
-    distanceRight = getUltrasonicDistance();
-    turnLeft(2);   
+  distanceFront = getUltrasonicDistance();
+  delay(100);
+  turnLeft(2);
+  distanceLeft = getUltrasonicDistance();
+  delay(100);
+  turnLeft(2);
+  distanceBack = getUltrasonicDistance();
+  delay(100);
+  turnLeft(2);
+  distanceRight = getUltrasonicDistance();
+  delay(100);
+  turnLeft(2);
 }
-
 
 // Function to determine best movement direction
 String decideDirection(long distanceFront, long distanceLeft, long distanceRight, long distanceBack) {
-    if (distanceFront > threshold) {
-        return "FORWARD";
-    } else if (distanceLeft > threshold) {
-        return "LEFT";
-    } else if (distanceRight > threshold) {
-        return "RIGHT";
-    } else if (distanceBack > threshold) {
-        return "BACKWARD";
-    } else {
-        return "STOP";
-    }
+  if (distanceFront > threshold) {
+    return "FORWARD";
+  } else if (distanceLeft > threshold) {
+    return "LEFT";
+  } else if (distanceRight > threshold) {
+    return "RIGHT";
+  } else if (distanceBack > threshold) {
+    return "BACKWARD";
+  } else {
+    return "STOP";
+  }
 }
 
 void navigateUltrasonic() {
-    long distanceFront = getUltrasonicDistance();
+  long distanceFront = getUltrasonicDistance();
 
-    if (distanceFront <= threshold) {
-        Serial.println("Obstacle detected in front! Measuring distances...");
-        
-        long distanceLeft, distanceBack, distanceRight;
-        measureAllDirections(distanceFront, distanceLeft, distanceBack, distanceRight);
-        
-        String command = decideDirection(distanceFront, distanceLeft, distanceRight, distanceBack);
-        Serial.print("Move command: ");
-        Serial.println(command);
-        
-        if (command == "FORWARD") {
-            // Code to move forward
-            moveForward(2);
-        } else if (command == "LEFT") {
-            turnLeft(2);
-            // Code to turn left
-        } else if (command == "RIGHT") {
-            turnRight(2);
-            // Code to turn right
-        } else if (command == "BACKWARD") {
-            moveBackward(2);
-            // Code to move backward
-        } else {
-            stopMotors();
-        }
+  // Move forward by default if no obstacle is detected within the threshold.
+  if (distanceFront > threshold) {
+    moveForward(2); // Code to move forward
+  } else {
+    Serial.println("Obstacle detected in front! Measuring distances...");
+
+    long distanceLeft, distanceBack, distanceRight;
+    measureAllDirections(distanceFront, distanceLeft, distanceBack, distanceRight);
+
+    String command = decideDirection(distanceFront, distanceLeft, distanceRight, distanceBack);
+    Serial.print("Move command: ");
+    Serial.println(command);
+
+    if (command == "FORWARD") {
+      moveForward(2);
+    } else if (command == "LEFT") {
+      turnLeft(2);
+    } else if (command == "RIGHT") {
+      turnRight(2);
+    } else if (command == "BACKWARD") {
+      moveBackward(2);
+    } else {
+      stopMotors();
     }
-    delay(100);  // Small delay for stability
+  }
+  
+  delay(100);  // Small delay for stability
 }
+
 
 
 // Function to send a retained message via MQTT
@@ -226,30 +235,6 @@ void onNewRPMReceiveCallback(int rpm) {
 }
 
 
-// Function to find the best heading based on LiDAR data
-float heading_find_best(double distances[], int scanSamples) {
-  float bestHeading = 0.0; // Initialize to forward (0 degrees)
-  float maxClearDistance = 0.0;
-
-  // Iterate through the distances and determine the clearest direction
-  for (int i = 0; i < scanSamples; i++) {
-    float angle = (360.0 / scanSamples) * i;
-    float distance = distances[i];
-
-    if (angle > 0.0 && angle < 180.0 ) {
-      // Check if this direction has the farthest clear distance
-      if (distance > maxClearDistance) {
-        maxClearDistance = distance;
-        bestHeading = angle;
-      }
-    }
-
-  }
-
-  return bestHeading; // Return the angle with the maximum clear distance
-}
-
-
 // Function to process LiDAR frames and print distances
 void LiDARFrameProcessing(Delta2GFrame *frame) {
   int frameIndex;
@@ -307,8 +292,6 @@ void LiDARFrameProcessing(Delta2GFrame *frame) {
 
     //Scan complete
     if (frameIndex == scanSteps - 1) {
-
-
       float distance = getUltrasonicDistance();
       uint16_t distance_cm = static_cast<uint16_t>(distance);
       char hexString[5]; // 4 characters for the hex value + 1 for null terminator
@@ -316,12 +299,14 @@ void LiDARFrameProcessing(Delta2GFrame *frame) {
       // Convert the uint16_t value to a hex string
       sprintf(hexString, " % 04X", distance_cm);
 
-      Serial.print("Distance: ");
-      Serial.print(distance_cm);
-      Serial.println(" cm");
+      if (debug) {
+        Serial.print("Distance: ");
+        Serial.print(distance_cm);
+        Serial.println(" cm");
+      }
+
 
       sendMQTTMessage(mqtt_ultrasound, hexString);
-
 
       if (scanSamplesRange != nullptr && scanSamplesIndex < sampleCnt * scanSteps) {
         String hexString = "";
@@ -478,6 +463,20 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
     delay(0.1);
   }
 
+  // Autonomon movement Activated
+  if (strcmp(payload, "LIDAR") == 0) {
+    lidar_movement_activated = 1;
+    ultrasound_movement_activated = 0;
+  }
+  else if (strcmp(payload, "ULTRASOUND") == 0) {
+    ultrasound_movement_activated = 1;
+    lidar_movement_activated = 0;
+  }
+  else if (strcmp(payload, "STOP") == 0) {
+    ultrasound_movement_activated = 0;
+    lidar_movement_activated = 0;
+  }
+
   // Execute movement based on determined action
   if (strcmp(payload, "FORWARD") == 0) {
     moveForward(2);
@@ -526,6 +525,12 @@ void loop() {
     connectToMqtt();  // Attempt to reconnect if not connected
   }
 
-  LidarProcess();
- 
+  //LidarProcess();
+
+  if (lidar_movement_activated) {
+
+  } else if (ultrasound_movement_activated) {
+    navigateUltrasonic();
+  }
+
 }
